@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import websockets
 import pandas as pd
@@ -8,21 +9,19 @@ import threading
 import webbrowser
 from flask import Flask
 
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+
 # Initialize an empty DataFrame to store the messages
 df = pd.DataFrame(columns=["timeStamp", "Material", "TxPower", "RTT", "RSSI"])
-
 powerLevels = [76, 70, 58, 50, 32, 26, 18, 6]
 
 async def receive_messages(uri):
-    async with websockets.connect(uri) as websocket:
+    async with websockets.connect(uri) as websocket:    
         while True:
-            # Receive message from the server
             message = await websocket.recv()
-            
-            # Print the received message
-            print(f"Received: {message}")
+            logging.info(f"Received: {message}")
             if message.startswith("DATA:"):
-                # Append the message to the DataFrame
                 global df
                 tStamp = int(str.strip((message.split("TIMESTAMP:")[-1]).split("ms\tMATERIAL:")[0]))
                 mat = str.strip((message.split("MATERIAL:")[-1]).split("Power:")[0])
@@ -42,36 +41,32 @@ async def receive_messages(uri):
                     reply = f"SWAP: recording for {mat} complete"
                     await websocket.send(reply)
             
-            # Check for exit condition
             if message.lower() == "exit":
                 df.to_csv('received_messages.csv', index=False)
-                print("Messages have been recorded and saved to received_messages.csv")            
-                print("Exiting...")
+                logging.info("Messages have been recorded and saved to received_messages.csv")
+                logging.info("Exiting...")
                 return -1
 
-# Define the URI of the WebSocket server
-uri = "ws://192.168.4.1:81"
-# uri = "ws://192.168.0.108:8080"
-
 async def main():
+    uri = "ws://192.168.4.1:81"
     while True:
         try:
-            # Run the WebSocket connection and receiving function
             rtState = await receive_messages(uri)
             if rtState == -1:
-                df.to_csv('received_messages.csv', index=False)
-                print("Messages have been recorded and saved to received_messages.csv")            
-                print("Exiting...")
-        except websockets.ConnectionClosed:
-            print("Connection closed, retrying...")
+                return
+        except websockets.exceptions.ConnectionClosed:
+            logging.warning("Connection closed, retrying...")
         except KeyboardInterrupt:
-            # Save the DataFrame to a CSV file
             df.to_csv('received_messages.csv', index=False)
-            print("Messages have been recorded and saved to received_messages.csv")            
-            print("Exiting...")
+            logging.info("Messages have been recorded and saved to received_messages.csv")
+            logging.info("Exiting...")
             return
 
-# Initialize Dash app with Flask server
+def start_websocket():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
+
 server = Flask(__name__)
 app = Dash(__name__, server=server)
 
@@ -109,7 +104,7 @@ def update_plot(n):
     fig.add_trace(go.Scatter(x=tdf["timeStamp"], y=tdf["RTT"], name="RTT", mode="lines", line=dict(color=rtt_color), yaxis="y3"))
 
     fig.update_layout(
-                    title=dict(text=f"Radio Transmission metrics {tdf.iloc[-1]["MATERIAL"]}", font_size=24),
+                    title=dict(text=f"Radio Transmission metrics {tdf.iloc[-1]['Material']}", font_size=24),
                     width=1750,
                     height=800,
                     legend=dict(x=0, y=1.07, orientation='h'),
@@ -126,10 +121,7 @@ def update_plot(n):
 def open_browser():
     webbrowser.open_new("http://127.0.0.1:8050/")
 
-# Start the WebSocket connection in a separate thread
-loop = asyncio.get_event_loop()
-threading.Thread(target=loop.run_until_complete, args=(main(),)).start()
-
 if __name__ == '__main__':
+    threading.Thread(target=start_websocket).start()
     threading.Timer(1, open_browser).start()
     app.run_server(debug=True)
