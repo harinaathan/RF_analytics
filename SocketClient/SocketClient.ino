@@ -1,6 +1,17 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <ESP32Ping.h>
+#include <esp_heap_caps.h>
+
+// Function to print free heap memory
+void printHeapStatus() {
+  Serial.print("Free heap: ");
+  Serial.println(ESP.getFreeHeap());
+  Serial.print("Largest free block: ");
+  Serial.println(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  Serial.print("Total free blocks: ");
+  Serial.println(heap_caps_get_free_size(MALLOC_CAP_8BIT));
+}
 
 const char* ssid = "LungFi";  // SSID of the first ESP32
 const char* password = "LH/RH_3Lobe";  // Password of the first ESP32
@@ -44,6 +55,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       }
       break;
   }
+  printHeapStatus();
 }
 
 void setup() {
@@ -59,6 +71,8 @@ void setup() {
 
   webSocket.begin("192.168.4.1", 81, "/");  // IP address of the first ESP32
   webSocket.onEvent(webSocketEvent);
+
+  printHeapStatus();
 }
 
 void loop() {
@@ -114,7 +128,8 @@ void loop() {
       }
 
       // broadcast data
-      message = "DATA: MATERIAL:" + material_name + "\t";
+      message = "DATA: TIMESTAMP:" + String(millis()) + " ms\t";
+      message += "MATERIAL:" + material_name + "\t";
       message += "Power: " + String(setPowerLevel) + " dBm\t";
       message += "RTT: " + String(rtt) + " ms\t";
       message += "RSSI: " + String(rssi) + " dBm\n";
@@ -131,4 +146,5 @@ void loop() {
       Serial.println(rssi);
     }
   }
+  printHeapStatus();
 }

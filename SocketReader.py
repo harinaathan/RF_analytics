@@ -9,7 +9,7 @@ import webbrowser
 from flask import Flask
 
 # Initialize an empty DataFrame to store the messages
-df = pd.DataFrame(columns=["Material", "TxPower", "RTT", "RSSI"])
+df = pd.DataFrame(columns=["timeStamp", "Material", "TxPower", "RTT", "RSSI"])
 
 powerLevels = [76, 70, 58, 50, 32, 26, 18, 6]
 
@@ -24,14 +24,18 @@ async def receive_messages(uri):
             if message.startswith("DATA:"):
                 # Append the message to the DataFrame
                 global df
+                tStamp = int(str.strip((message.split("TIMESTAMP:")[-1]).split("ms\tMATERIAL:")[0]))
                 mat = str.strip((message.split("MATERIAL:")[-1]).split("Power:")[0])
-                txPow = str.strip((message.split("Power:")[-1]).split("dBm\tRTT:")[0])
-                rtt = str.strip((message.split("RTT:")[-1]).split("ms\tRSSI:")[0])
-                rssi = str.strip((message.split("RSSI:")[-1]).split("dBm")[0])
+                txPow = int(str.strip((message.split("Power:")[-1]).split("dBm\tRTT:")[0]))
+                rtt = int(str.strip((message.split("RTT:")[-1]).split("ms\tRSSI:")[0]))
+                rssi = int(str.strip((message.split("RSSI:")[-1]).split("dBm")[0]))
                 
                 if df.loc[(df["Material"] == mat) & (df["TxPower"] == txPow)].shape[0] < 30:
-                    tdf = pd.DataFrame(dict(Material=mat, TxPower=txPow,
-                                            RTT=rtt, RSSI=rssi), index=[0])
+                    tdf = pd.DataFrame(dict(timeStamp=tStamp,
+                                            Material=mat,
+                                            TxPower=txPow,
+                                            RTT=rtt,
+                                            RSSI=rssi), index=[0])
                     df = pd.concat([df, tdf], ignore_index=True)
 
                 if df.loc[(df["Material"] == mat)].shape[0] >= 30 * len(powerLevels):
@@ -40,7 +44,10 @@ async def receive_messages(uri):
             
             # Check for exit condition
             if message.lower() == "exit":
-                break
+                df.to_csv('received_messages.csv', index=False)
+                print("Messages have been recorded and saved to received_messages.csv")            
+                print("Exiting...")
+                return -1
 
 # Define the URI of the WebSocket server
 uri = "ws://192.168.4.1:81"
@@ -50,7 +57,11 @@ async def main():
     while True:
         try:
             # Run the WebSocket connection and receiving function
-            await receive_messages(uri)
+            rtState = await receive_messages(uri)
+            if rtState == -1:
+                df.to_csv('received_messages.csv', index=False)
+                print("Messages have been recorded and saved to received_messages.csv")            
+                print("Exiting...")
         except websockets.ConnectionClosed:
             print("Connection closed, retrying...")
         except KeyboardInterrupt:
@@ -58,7 +69,7 @@ async def main():
             df.to_csv('received_messages.csv', index=False)
             print("Messages have been recorded and saved to received_messages.csv")            
             print("Exiting...")
-            break
+            return
 
 # Initialize Dash app with Flask server
 server = Flask(__name__)
@@ -80,24 +91,35 @@ def update_plot(n):
     if df.empty:
         return go.Figure()
 
-    tdf = df.iloc[-100:]
+    lastTimeStamp = df["timeStamp"].iloc[-1]
+    renderBeginTimeStamp = lastTimeStamp - 30000
+    tdf = df.loc[df["timeStamp"] >= renderBeginTimeStamp]
 
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(x=tdf.index, y=tdf['TxPower'], mode='lines', name='TxPower', line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=tdf.index, y=tdf['RSSI'], mode='lines', name='RSSI', line=dict(color='blue'), yaxis='y2'))
-    fig.add_trace(go.Scatter(x=tdf.index, y=tdf['RTT'], mode='lines', name='RTT', line=dict(color='red'), yaxis='y3'))
+    power_color = '#636EFA'
+    rssi_color = '#EF553B'
+    rtt_color = '#00CC96'
+    grid_color = "rgb(75,75,75)"
 
-    # Update layout for clarity
-    material_title = tdf['Material'].iloc[-1] if not tdf.empty else "<unknown>"
+    fig.update_layout(font_color="rgb(150,150,150)")
+
+    fig.add_trace(go.Scatter(x=tdf["timeStamp"], y=tdf["TxPower"], name="TxPower", mode="lines", line=dict(color=power_color)))
+    fig.add_trace(go.Scatter(x=tdf["timeStamp"], y=tdf["RSSI"], name="RSSI", mode="lines", line=dict(color=rssi_color), yaxis="y2"))
+    fig.add_trace(go.Scatter(x=tdf["timeStamp"], y=tdf["RTT"], name="RTT", mode="lines", line=dict(color=rtt_color), yaxis="y3"))
+
     fig.update_layout(
-        title=f'Live Data Visualization - {material_title}',
-        xaxis=dict(title='Index'),
-        yaxis=dict(title='TxPower (dBm)', titlefont=dict(color='green'), tickfont=dict(color='green'), anchor="free", overlaying='y', side='left', position=0, range=[0, 100]),
-        yaxis2=dict(title='RSSI (dBm)', titlefont=dict(color='blue'), tickfont=dict(color='blue'), anchor="free", overlaying='y', side='right', position=0, range=[-100, 0]),
-        yaxis3=dict(title='RTT (ms)', titlefont=dict(color='red'), tickfont=dict(color='red'), anchor="free", overlaying='y', side='right', position=1, range=[0, 10]),
-        legend=dict(x=0, y=1.1, orientation='h')
-    )
+                    title=dict(text=f"Radio Transmission metrics {tdf.iloc[-1]["MATERIAL"]}", font_size=24),
+                    width=1750,
+                    height=800,
+                    legend=dict(x=0, y=1.07, orientation='h'),
+                    plot_bgcolor='rgb(35,35,35)',
+                    paper_bgcolor ='rgb(10,10,10)',
+                    xaxis=dict(domain=[0.05,1], linecolor=grid_color, gridcolor=grid_color, mirror=True),
+                    yaxis=dict(title=dict(text="TxPower (dBm)", font=dict(color=power_color)), tickfont=dict(color=power_color), range=[0,100], linecolor=grid_color, gridcolor=grid_color),
+                    yaxis2=dict(title=dict(text="RSSI (dBm)", font=dict(color=rssi_color)), tickfont=dict(color=rssi_color), anchor="free", overlaying="y", side="left", position=0, range=[-100,0], linecolor=grid_color, gridcolor=grid_color),
+                    yaxis3=dict(title=dict(text="RTT (ms)", font=dict(color=rtt_color)), tickfont=dict(color=rtt_color), anchor="x", overlaying="y", side="right", range=[0,5], linecolor=grid_color, gridcolor=grid_color)
+                    )
 
     return fig
 

@@ -3,6 +3,17 @@
 #include <AsyncTCP.h>
 #include <WebSocketsServer.h>
 #include "esp_wifi.h"
+#include <esp_heap_caps.h>
+
+// Function to print free heap memory
+void printHeapStatus() {
+  Serial.print("Free heap: ");
+  Serial.println(ESP.getFreeHeap());
+  Serial.print("Largest free block: ");
+  Serial.println(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  Serial.print("Total free blocks: ");
+  Serial.println(heap_caps_get_free_size(MALLOC_CAP_8BIT));
+}
 
 const char* ssid = "LungFi";
 const char* password = "LH/RH_3Lobe";
@@ -27,6 +38,8 @@ void setup() {
   webSocket.onEvent(onWebSocketEvent);
 
   server.begin();
+
+  printHeapStatus(); // Initial heap status
 }
 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
@@ -47,7 +60,10 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
         webSocket.sendTXT(i, message);
       }
       Serial.printf("acknowledged power setting to %d\n",powerLevel);
-    } else if (command.startsWith("DATA:") || (command.startsWith("RENAME:"))) {
+    } else if (command.startsWith("DATA:") 
+                || (command.startsWith("RENAME:")) 
+                || (command.startsWith("SWAP:")) 
+                || (command.equals("EXIT"))) {
       for (int i = 0; i < webSocket.connectedClients(); i++) {
         if (i == num) {
           continue;
@@ -56,7 +72,7 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
       }
       Serial.println("broadcasted data");
     } else if (command.startsWith("TEST:")) {
-      message = "ACKNOWLEDGED" + String((char*)payload);
+      message = "ACKNOWLEDGED:" + String((char*)payload);
       for (int i = 0; i < webSocket.connectedClients(); i++) {
         webSocket.sendTXT(i, message);
       }
@@ -72,6 +88,7 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
       }
     }
   }
+  printHeapStatus(); // check heap status
 }
 
 void loop() {
