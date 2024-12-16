@@ -33,13 +33,22 @@ async def receive_messages(uri):
                     rtt = int(str.strip((message.split("RTT:")[-1]).split("ms\tRSSI:")[0]))
                     rssi = int(str.strip((message.split("RSSI:")[-1]).split("dBm")[0]))
 
-                    if df.loc[(df["Material"] == mat) & (df["TxPower"] == txPow)].shape[0] < 30:
+                    if mat != "DEMO":
+                        if df.loc[(df["Material"] == mat) & (df["TxPower"] == txPow)].shape[0] < 30:
+                            tdf = pd.DataFrame(dict(timeStamp=tStamp,
+                                                    Material=mat,
+                                                    TxPower=txPow,
+                                                    RTT=rtt,
+                                                    RSSI=rssi), index=[0])
+                            df = pd.concat([df, tdf], ignore_index=True)
+                    elif mat == "DEMO":
                         tdf = pd.DataFrame(dict(timeStamp=tStamp,
                                                 Material=mat,
                                                 TxPower=txPow,
                                                 RTT=rtt,
                                                 RSSI=rssi), index=[0])
                         df = pd.concat([df, tdf], ignore_index=True)
+
             except websockets.exceptions.ConnectionClosed:
                 logging.warning("Connection closed, retrying...")
 
@@ -144,19 +153,20 @@ def update_plot(n):
 
     fig.update_layout(
         title=dict(text=f"Radio Transmission metrics - {material_name}", font_size=24),
-        width=1750,
-        height=800,
+        width=1500,
+        height=600,
         legend=dict(x=0, y=1.07, orientation='h'),
         plot_bgcolor='rgb(35,35,35)',
         paper_bgcolor='rgb(10,10,10)',
         xaxis=dict(domain=[0.05,1], linecolor=grid_color, gridcolor=grid_color, mirror=True),
         yaxis=dict(title=dict(text="TxPower (dBm)", font=dict(color=power_color)), tickfont=dict(color=power_color), range=[0,100], linecolor=grid_color, gridcolor=grid_color),
-        yaxis2=dict(title=dict(text="RSSI (dBm)", font=dict(color=rssi_color)), tickfont=dict(color=rssi_color), anchor="free", overlaying="y", side="left", position=0, range=[-100,0], linecolor=grid_color, gridcolor=grid_color),
+        yaxis2=dict(title=dict(text="RSSI (dBm)", font=dict(color=rssi_color)), tickfont=dict(color=rssi_color), anchor="free", overlaying="y", side="left", position=0, range=[-100,-15], linecolor=grid_color, gridcolor=grid_color),
         yaxis3=dict(title=dict(text="RTT (ms)", font=dict(color=rtt_color)), tickfont=dict(color=rtt_color), anchor="x", overlaying="y", side="right", range=[0,5], linecolor=grid_color, gridcolor=grid_color)
     )    
 
     status_message = f"Measuring {material_name}\n"
     record_count = df.loc[df["Material"] == material_name].shape[0]
+    powerLevels = df.TxPower.sort_values().unique()
     for power in powerLevels:
         count = df.loc[(df["Material"] == material_name) & (df["TxPower"] == power)].shape[0]
         status_message += f"{power}dBm: {count} records\n"
